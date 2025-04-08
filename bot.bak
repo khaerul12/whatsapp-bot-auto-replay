@@ -1,0 +1,78 @@
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+
+const client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: { headless: true }
+});
+
+// Simpan state user (untuk multi-level menu)
+const userState = {};
+
+client.on('qr', qr => qrcode.generate(qr, { small: true }));
+
+client.on('ready', () => console.log('Bot ready!'));
+
+client.on('message', async msg => {
+    const sender = msg.from;
+    const text = msg.body.toLowerCase().trim();
+
+    // Reset state jika pesan terakhir > 5 menit lalu
+    if (userState[sender] && (Date.now() - userState[sender].lastActive > 300000)) {
+        delete userState[sender];
+    }
+
+    // Handle balasan otomatis
+    if (!userState[sender]) {
+        // Pesan pertama (respons ke semua input)
+        await msg.reply(`Pilih layanan:\n1. Sales\n2. Service\n3. Hal lain\n\n*Balas angka saja*`);
+        userState[sender] = { step: 'main_menu', lastActive: Date.now() };
+    } 
+    else if (userState[sender].step === 'main_menu') {
+        if (text === '1') {
+            await msg.reply('Minat unit apa? Pembelian *cash* atau *kredit*? Domisilinya mana?');
+            userState[sender] = { step: 'sales', lastActive: Date.now() };
+        } 
+        else if (text === '2') {
+            await msg.reply('Pilih layanan:\n1. Sparepart\n2. Service\n\n*Balas angka saja*');
+            userState[sender] = { step: 'service_menu', lastActive: Date.now() };
+        } 
+        else if (text === '3') {
+            await msg.reply('Silahkan sampaikan kebutuhan Anda...');
+            userState[sender] = { step: 'other', lastActive: Date.now() };
+        }
+    } 
+    else if (userState[sender].step === 'service_menu') {
+        if (text === '1') {
+            await msg.reply('Sparepart apa? Domisilinya mana? Biar kami cek ketersediaannya.');
+            userState[sender] = { step: 'sparepart', lastActive: Date.now() };
+        } 
+        else if (text === '2') {
+            await msg.reply(`Mohon isi form berikut:\n
+Nama: 
+No. HP: 
+Kota: 
+Alamat: 
+Unit motor: 
+Kendala: 
+Jemput/Datang ke bengkel: `);
+            userState[sender] = { step: 'service_form', lastActive: Date.now() };
+        }
+    } 
+    else {
+        // Final step (konfirmasi)
+        await msg.reply('Baik, tim kami akan segera menghubungi Anda. 🚀');
+        delete userState[sender]; // Reset state
+    }
+});
+
+// Tangani missed call (jika perlu)
+client.on('call', async call => {
+    if (call.isMissed) {
+        const chat = await call.getChat();
+        await chat.sendMessage('Kami melihat Anda menelepon. Silahkan pilih layanan:\n1. Sales\n2. Service\n3. Lainnya');
+    }
+});
+
+client.initialize();
+
